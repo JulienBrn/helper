@@ -31,20 +31,6 @@ def singleglob(p: Path, *patterns, error_string='Found {n} candidates for patter
         raise FileNotFoundError(error_string.format(p=p, n=len(all), patterns=patterns))
     return all[0]
 
-# def nxrender(graph: nx.Graph, autolabel=[..., r'NEXT.*', "shape", "color"], **drawkwargs):
-#     graph = graph.copy()
-#     node_labels = {node: "\n".join([f'{k}={v}' for k,v in graph.nodes[node].items() if not "NEXT" in k]) for node in graph.nodes}
-#     edge_labels = {edge: "\n".join([f'{k}={v}' for k,v in graph.edges[edge].items()]) for edge in graph.edges}
-#     nx.set_node_attributes(graph, node_labels, "label")
-#     nx.set_edge_attributes(graph, edge_labels, "label")
-#     for node in graph.nodes:
-#         attrs = []
-#         for attr in graph.nodes(data=True)[node]:
-#                 if attr != "label":
-#                     attrs.append(attr)
-#         for attr in attrs:
-#             graph.nodes[node].pop(attr, None)
-#     return nx.nx_agraph.to_agraph(graph).draw(prog="dot", **drawkwargs)
     
 def nxrender(graph: nx.Graph, nodeautolabel=[..., "+dot"], edgeautolabel=[..., "+dot"], legend=True, **drawkwargs):
     dotnodelabels = ["shape", "color", "fillcolor", "style"]
@@ -124,7 +110,48 @@ def nxrender(graph: nx.Graph, nodeautolabel=[..., "+dot"], edgeautolabel=[..., "
         g = nx.nx_agraph.to_agraph(graph)
     return g.draw(prog="dot", **drawkwargs)
     
-    
+
+class Step:
+    def __init__(self, script: Path, file: str):
+        self.script = script
+        self.file = file
+    def exec_if_necessary(self):
+        if not (self.script.parent/ self.file).exists():
+            if not self.script.exists():
+                raise Exception("Problem")
+            else:
+                if self.script.suffix ==".ipynb":
+                    import papermill, shutil
+                    tmp_script = self.script.with_name(self.script.name+"_tmp")
+                    papermill.execute_notebook(self.script, tmp_script, cwd=self.script.parent)
+                    shutil.move(tmp_script, self.script)
+        if not (self.script.parent/ self.file).exists():
+            raise Exception(f"Script {self.script} did not create file {self.file}")
+        return (self.script.parent/ self.file)
+
+def dict_merge(*d, incompatible="raise"):
+    def dict_merge_impl(d1, d2):
+        if not isinstance(d1, dict) or not isinstance(d2, dict):
+            if not d1==d2:
+                import pandas as pd
+                if pd.isna(d1):
+                    return d2
+                if pd.isna(d2):
+                    return d1
+                if incompatible == "raise":
+                    raise Exception(f"problem merging dictionaries... {d1} {d2} {pd.isna(d2)} {pd.isna(d1)}")
+                elif incompatible == "remove":
+                    return {}
+            return d1
+        else:
+            merge = {k:dict_merge(v, d2[k], incompatible=incompatible) for k,v in d1.items() if k in d2}
+            return {k:v for k,v in d1.items() if not k in d2} | {k:v for k,v in d2.items() if not k in d1} |  {k:v for k,v in merge.items() if not v=={}}
+    if len(d) ==0:
+        return {}
+    curr = d[0]
+    for di in d[1:]:
+        curr= dict_merge_impl(curr, di)
+    return curr
 def run():
     setup_nice_logging()
     logger.info("Running start")
